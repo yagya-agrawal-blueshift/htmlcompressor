@@ -121,20 +121,30 @@ module HtmlCompressor
       assert_equal ['.static { width: 20px; }'], compiler.inputs
     end
 
-    def test_css_compression_restores_utf8_bytes_returned_by_the_compiler
+    def test_css_compression_restores_utf8_bytes_returned_as_binary_or_us_ascii
       css = '.copy::before{content:"Café"}'
-      compiler = RecordingCompiler.new(css.b.freeze)
       source = '<p>Crème</p><style>.copy::before { content: "Café"; }</style>'
+      expected = "<p>Crème</p><style>#{css}</style>"
 
-      assert_equal "<p>Crème</p><style>#{css}</style>",
-        Compressor.new(:compress_css => true, :css_compressor => compiler).compress(source)
+      [Encoding::BINARY, Encoding::US_ASCII].each do |encoding|
+        output = css.dup.force_encoding(encoding).freeze
+        compiler = RecordingCompiler.new(output)
+        compressor = Compressor.new(:compress_css => true, :css_compressor => compiler)
+
+        assert_equal expected, compressor.compress(source)
+      end
     end
 
     def test_css_compression_keeps_original_style_when_the_compiler_returns_invalid_bytes
-      compiler = RecordingCompiler.new("\xff".b)
       source = '<p>Crème</p><style><![CDATA[.copy { color: blue; }]]></style>'
 
-      assert_equal source, Compressor.new(:compress_css => true, :css_compressor => compiler).compress(source)
+      [Encoding::BINARY, Encoding::US_ASCII].each do |encoding|
+        output = [0xff].pack('C').force_encoding(encoding).freeze
+        compiler = RecordingCompiler.new(output)
+        compressor = Compressor.new(:compress_css => true, :css_compressor => compiler)
+
+        assert_equal source, compressor.compress(source)
+      end
     end
 
     def test_non_breaking_space_and_character_reference_spelling_survive

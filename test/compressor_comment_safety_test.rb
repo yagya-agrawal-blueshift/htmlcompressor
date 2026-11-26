@@ -50,6 +50,56 @@ module HtmlCompressor
       end
     end
 
+    def test_padded_outlook_closer_ends_the_revealed_branch_before_the_next_hidden_branch
+      opener = '<!--[if !mso]><!---->'
+      fallback = '<a href="{{ details_url }}" data-bsft-link-index="1">Details</a>'
+      note = '<!-- Editorial note mentions <![endif]-->'
+      hidden = '<!--[if mso]><v:roundrect href="{{ details_url }}">Details</v:roundrect><![endif]-->'
+      compressor = Compressor.new(:remove_intertag_spaces => true, :preserve_patterns => TestFixtures::EMAIL_PRESERVE_PATTERNS)
+
+      ['<!-- <![endif]-->', "<!--\t\r\n<![ENDIF]-->"].each do |closer|
+        source = opener + note + fallback + closer + hidden + '<!-- removable footer note -->'
+        assert_equal opener + fallback + closer + hidden, compressor.compress(source)
+      end
+    end
+
+    def test_padded_closer_in_a_quoted_attribute_or_script_is_literal
+      opener = '<!--[if !mso]><!---->'
+      literal = '<!-- <![endif]-->'
+      fallback = %Q{<p title="#{literal}">Details</p><script>var marker = "#{literal}";</script>}
+      source = opener + fallback + '<!-- ordinary note -->' + literal + '<p>After</p>'
+      compressor = Compressor.new(:remove_intertag_spaces => true, :preserve_patterns => TestFixtures::EMAIL_PRESERVE_PATTERNS)
+
+      assert_equal opener + fallback + literal + '<p>After</p>', compressor.compress(source)
+    end
+
+    def test_standalone_padded_outlook_closer_survives_ordinary_comment_removal
+      closer = '<!-- <![endif]-->'
+      source = '<p>Before</p>' + closer + '<!-- ordinary note --><p>After</p>'
+
+      assert_equal '<p>Before</p>' + closer + '<p>After</p>', Compressor.new.compress(source)
+    end
+
+    def test_empty_revealed_outlook_wrappers_keep_their_closing_marker
+      opener = '<!--[if !mso]><!---->'
+      compressor = Compressor.new(:remove_intertag_spaces => true)
+
+      ['<!--<![endif]-->', '<!-- <![endif]-->'].each do |closer|
+        source = opener + closer + '<p>After</p>'
+        assert_equal source, compressor.compress(source)
+      end
+    end
+
+    def test_revealed_outlook_closers_keep_spaces_between_inline_words
+      opener = '<!--[if !mso]><!-->'
+      compressor = Compressor.new(:remove_intertag_spaces => true)
+
+      ['<!--<![endif]-->', '<!-- <![endif]-->'].each do |closer|
+        source = opener + 'Read more ' + closer + 'online'
+        assert_equal source, compressor.compress(source)
+      end
+    end
+
     def test_removing_nested_comment_text_does_not_erase_an_outlook_marker
       marker = "<!-- section label\n<!-- nested label\n<![endif]-->"
       source = marker + '<!-- removable note --><p>Continue</p>'

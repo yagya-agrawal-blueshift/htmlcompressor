@@ -47,7 +47,11 @@ module HtmlCompressor
     SKIP_PATTERN = Regexp.new("<!--\\s*\\{\\{\\{\\s*-->(.*?)<!--\\s*\\}\\}\\}\\s*-->", Regexp::MULTILINE | Regexp::IGNORECASE)
     OUTLOOK_COMMENT_OPENER = /<!--\[if\b[^\]]*\]>/i
     OUTLOOK_REVEAL_MARKER = /[ \t\r\n\f]*<!--(?:>|[ \t\r\n\f]*-->)/
-    COND_COMMENT_END_PATTERN = /<!\[[^\]]+\]-->/im
+    OUTLOOK_PADDED_END = /[ \t\r\n\f]+<!\[endif\]-->/i
+    OUTLOOK_PADDED_CLOSER = /<!--#{OUTLOOK_PADDED_END}/
+    # Keep the closing comment's opener in the revealed body so inline
+    # whitespace is compressed the same way as with an unpadded closer.
+    COND_COMMENT_END_PATTERN = /(?<=<!--)#{OUTLOOK_PADDED_END}|<!\[[^\]]+\]-->/im
     COND_COMMENT_PATTERN = /(<!(?:--)?\[[^\]]+?\]>(?:#{OUTLOOK_REVEAL_MARKER})?)(.*?)(#{COND_COMMENT_END_PATTERN})/im
     COMMENT_PATTERN = Regexp.new("<!---->|<!--[^\\[].*?-->", Regexp::MULTILINE | Regexp::IGNORECASE)
     # This is a prefilter only. An apparent comment can start in a quoted
@@ -56,6 +60,7 @@ module HtmlCompressor
     HTML_TAG_TAIL = /(?:"[^"]*"|'[^']*'|[^"'<>])*>/
     PRESERVATION_BOUNDARY_PATTERN = /
       #{OUTLOOK_COMMENT_OPENER}(?:#{OUTLOOK_REVEAL_MARKER})?
+      | #{OUTLOOK_PADDED_CLOSER}
       | <!--(?:<!\[endif\]-->|-?>)
       | <!--(?<comment>.*?)--!?>
       | \{\{.*?\}\} | \{%.*?%\}
@@ -319,6 +324,11 @@ module HtmlCompressor
         token = Regexp.last_match
         if token[:comment] && hint =~ token[:comment]
           ranges << (token.begin(0)...token.end(0))
+        elsif hint == CONDITIONAL_HINT && OUTLOOK_PADDED_CLOSER.match?(token[0], 1)
+          # A closer inside an opaque token is literal text. Skip the whole
+          # token so a quoted attribute or raw body cannot end the branch.
+          ranges << (token.begin(0)...token.end(0))
+          next
         end
         raw_body = token[:raw_body]
         next unless raw_body && raw_body.include?('<!--')

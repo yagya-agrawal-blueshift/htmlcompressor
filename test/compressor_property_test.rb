@@ -30,7 +30,9 @@ module HtmlCompressor
     OUTLOOK = [
       ['', ''],
       ['<!--[if mso]>', '<![endif]-->'],
-      ['<!--[if !mso]><!-->', '<!--<![endif]-->']
+      ['<!--[if !mso]><!-->', '<!--<![endif]-->'],
+      ['<!--[if !mso]><!---->', '<!-- <![endif]-->'],
+      ['<!--[if !mso]><!-- -->', "<!--\t\n<![ENDIF]-->"]
     ].freeze
 
     COMMENT_TARGETS = RAW_CONTENT.keys + ['conditional', 'event'].freeze
