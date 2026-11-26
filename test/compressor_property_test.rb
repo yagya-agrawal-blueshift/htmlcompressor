@@ -17,6 +17,8 @@ module HtmlCompressor
       ['<p lang="fr">Café  du monde &amp; thé</p>', '<p lang="fr">Café du monde &amp; thé</p>'],
       ['<a  href = "{{ product.url }}" data-bsft-link-index="10">Shop now</a>',
         '<a href="{{ product.url }}" data-bsft-link-index="10">Shop now</a>'],
+      ["<img src='https://example.com/preview?size=wide\r\n&amp;key={{ key }}'>"] * 2,
+      ["<font>Shop</font> \n <span>now</span>", '<font>Shop</font> <span>now</span>'],
       ['{% if available %}<span>{{ title }}</span>{% else %}<em>Sold out</em>{% endif %}'] * 2,
       ['<script type="application/json">{"text":"two  spaces","number":1}</script>'] * 2,
       ['<table role="presentation"><tr><td>Order  details</td></tr></table>',

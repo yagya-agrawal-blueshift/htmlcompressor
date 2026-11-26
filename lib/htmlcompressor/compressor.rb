@@ -82,8 +82,8 @@ module HtmlCompressor
     TEXTAREA_HINT = /<textarea/i
     PRESERVATION_HINT = Regexp.union(CONDITIONAL_HINT, EVENT_HINT, PRE_HINT, SCRIPT_HINT, STYLE_HINT, TEXTAREA_HINT)
     COMMENT_JOIN_BOUNDARY = /(?:&[A-Za-z0-9#]*|<)(?=<!--)/
-    INLINE_ELEMENTS = 'a|abbr|b|bdi|bdo|button|cite|code|data|del|dfn|em|i|img|input|ins|kbd|label|mark|meter|' \
-      'output|picture|q|ruby|s|samp|select|small|span|strong|sub|sup|time|u|var|wbr'
+    INLINE_ELEMENTS = 'a|abbr|acronym|b|bdi|bdo|big|button|cite|code|data|del|dfn|em|font|i|img|input|ins|kbd|' \
+      'label|mark|meter|nobr|output|picture|q|ruby|s|samp|select|small|span|strike|strong|sub|sup|time|tt|u|var|wbr'
     INTERTAG_PATTERN_TAG_TAG = /
       (?<left><\/?(?:#{INLINE_ELEMENTS})(?=[\s\/>])#{HTML_TAG_TAIL}|>)
       (?<space>\s+)(?=<(?:\/?(?<right>#{INLINE_ELEMENTS})(?=[\s\/>]))?)
@@ -92,6 +92,11 @@ module HtmlCompressor
     INTERTAG_PATTERN_CUSTOM_TAG = Regexp.new("~%%%\\s+<", Regexp::MULTILINE | Regexp::IGNORECASE)
     INTERTAG_PATTERN_CUSTOM_CUSTOM = Regexp.new("~%%%\\s+%%%~", Regexp::MULTILINE | Regexp::IGNORECASE)
     MULTISPACE_PATTERN = Regexp.new("\\s+", Regexp::MULTILINE | Regexp::IGNORECASE)
+    QUOTED_URL_WHITESPACE_CANDIDATE = /\b(?:href|src)\s*=\s*(?:"[^"]*\s|'[^']*\s)/i
+    HTML_START_TAG = /\A<[a-z][^\s\/<>"']*#{HTML_TAG_TAIL}/i
+    HTML_ATTRIBUTE_WITH_VALUE = /
+      (?<name>[^\s=<>"'\/]+)(?<assignment>\s*=\s*)(?:(?<quoted>"[^"]*"|'[^']*')|[^\s<>"']+)
+    /x
     TAG_END_SPACE_PATTERN = Regexp.new("(<(?:[^>]+?))(?:\\s+?)(/?>)", Regexp::MULTILINE | Regexp::IGNORECASE)
     TAG_LAST_UNQUOTED_VALUE_PATTERN = Regexp.new("=\\s*[a-z0-9\\-_]+$", Regexp::IGNORECASE)
     TAG_QUOTE_PATTERN = Regexp.new("\\s*=\\s*([\"'])([a-z0-9\\-_]+?)\\1(/?)(?=[^<]*?>)", Regexp::IGNORECASE)
@@ -124,6 +129,8 @@ module HtmlCompressor
     SURROUNDING_SPACES_ALL_PATTERN = Regexp.new("\\s*(<[^>]+>)\\s*", Regexp::MULTILINE | Regexp::IGNORECASE)
 
     TEMP_BLOCK_PATTERN = /%%%~COMPRESS~(COND|PRE|TEXTAREA|SCRIPT|STYLE|EVENT|LT|SKIP|USER\d+)~(\d+)~%%%/
+    TEMP_URL_VALUE_PATTERN = /%%%~COMPRESS~URL~(\d+)~%%%/
+    AUTHORED_TOKEN_PATTERN = Regexp.union(TEMP_BLOCK_PATTERN, TEMP_URL_VALUE_PATTERN)
 
     JAVASCRIPT_COMPRESSORS_OPTIONS = {
       :closure => { :compilation_level => 'ADVANCED_OPTIMIZATIONS' },
@@ -228,7 +235,7 @@ module HtmlCompressor
         return html
       end
       # A literal token could be mistaken for a saved block during restoration.
-      return html if TEMP_BLOCK_PATTERN.match?(html)
+      return html if AUTHORED_TOKEN_PATTERN.match?(html)
 
       # preserved block containers
       condCommentBlocks = []
@@ -687,6 +694,12 @@ module HtmlCompressor
       # remove https from attributes
       html = remove_https_protocol(html)
 
+      # A tab or newline in a URL is discarded by URL parsers. Replacing it
+      # with a space, or changing existing spaces in the value, can change
+      # the destination. Shield values from the whitespace passes below.
+      url_values = []
+      html = preserve_quoted_url_values(html, url_values)
+
       # remove inter-tag spaces
       html = remove_intertag_spaces(html)
 
@@ -702,7 +715,31 @@ module HtmlCompressor
       # # remove surrounding spaces
       html = remove_surrounding_spaces(html)
 
+      unless url_values.empty?
+        html = html.gsub(TEMP_URL_VALUE_PATTERN) { url_values.fetch(Regexp.last_match(1).to_i) }
+      end
       html.strip
+    end
+
+    def preserve_quoted_url_values(html, url_values)
+      return html unless QUOTED_URL_WHITESPACE_CANDIDATE.match?(html)
+
+      html.gsub(COMMENT_REMOVAL_BOUNDARY_PATTERN) do |fragment|
+        next fragment unless QUOTED_URL_WHITESPACE_CANDIDATE.match?(fragment)
+
+        fragment.sub(HTML_START_TAG) do |tag|
+          tag.gsub(HTML_ATTRIBUTE_WITH_VALUE) do |text|
+            attribute = Regexp.last_match
+            quoted = attribute[:quoted]
+            next text unless quoted && %w[href src].include?(attribute[:name].downcase) &&
+              MULTISPACE_PATTERN.match?(quoted)
+
+            marker = "%%%~COMPRESS~URL~#{url_values.length}~%%%"
+            url_values << quoted[1...-1]
+            attribute[:name] + attribute[:assignment] + quoted[0] + marker + quoted[-1]
+          end
+        end
+      end
     end
 
     def remove_comments(html)

@@ -98,6 +98,21 @@ module HtmlCompressor
         Compressor.new(:remove_intertag_spaces => true).compress(input)
     end
 
+    def test_intertag_minification_keeps_word_spacing_for_legacy_inline_elements
+      compressor = Compressor.new(:remove_intertag_spaces => true)
+
+      %w[acronym big font nobr strike tt].each do |tag|
+        legacy = "<#{tag}>Shop</#{tag}>"
+        matching = "<#{tag}>now</#{tag}>"
+        inline = '<span>now</span>'
+
+        assert_equal legacy + ' ' + matching, compressor.compress(legacy + " \n " + matching), tag
+        assert_equal legacy + ' ' + inline, compressor.compress(legacy + " \t " + inline), tag
+        assert_equal inline + ' ' + legacy, compressor.compress(inline + " \n " + legacy), tag
+      end
+      assert_equal '<div>Shop</div><div>now</div>', compressor.compress("<div>Shop</div> \n <div>now</div>")
+    end
+
     def test_intertag_minification_keeps_spacing_inside_a_link_and_around_inline_images
       source = '<div> <a href="/offer"><span>Blue</span> </a>shoes <img src="badge.png"> <strong>Sale</strong> </div>'
       expected = '<div><a href="/offer"><span>Blue</span> </a>shoes <img src="badge.png"> <strong>Sale</strong></div>'
@@ -161,6 +176,61 @@ module HtmlCompressor
         'data-bsft-link-index=42 rel=external>Open</a>'
 
       assert_equal expected, email_compressor(:remove_quotes => true).compress(input)
+    end
+
+    def test_quoted_url_values_keep_line_breaks_tabs_and_literal_spaces
+      compressor = email_compressor(:remove_intertag_spaces => true)
+
+      ["\n", "\r\n", "\t", '  '].product(['"', "'"]).each do |separator, quote|
+        image_url = "https://example.com/preview?size=portrait#{separator}&amp;key={{ customer_key }}"
+        link_url = "https://example.com/redeem?offer=first#{separator}&amp;step=2"
+        image = "<img SRC=#{quote}#{image_url}#{quote}>"
+        link = "<a href=#{quote}#{link_url}#{quote} data-bsft-link-index=\"1\"> Open offer </a>"
+        input = "<div> \n #{image}#{link.sub(' Open offer ', '  Open  offer  ')} \n </div>"
+        expected = "<div>#{image}#{link}</div>"
+
+        assert_equal expected, compressor.compress(input), [separator, quote].inspect
+        assert_equal expected, compressor.compress(expected), [separator, quote].inspect
+      end
+    end
+
+    def test_whitespace_protection_applies_only_to_url_values_on_real_start_tags
+      input = "<p>  Copy href='help\npage'  </p>" \
+        "<!-- sample <img src='some\nimage'> -->" \
+        "<a title='example href=\"other\npage\"' data-src=\"other\nimage\" href='real\npage'>  Open </a>"
+      expected = "<p> Copy href='help page' </p>" \
+        "<!-- sample <img src='some image'> -->" \
+        "<a title='example href=\"other page\"' data-src=\"other image\" href='real\npage'> Open </a>"
+
+      assert_equal expected, Compressor.new(:remove_comments => false).compress(input)
+    end
+
+    def test_quoted_url_whitespace_survives_in_outlook_conditional_content
+      source = "<!--[if mso]><v:rect href='{{ destination }}?code=one\n&amp;step=2'>  Open   offer </v:rect><![endif]-->"
+      expected = "<!--[if mso]><v:rect href='{{ destination }}?code=one\n&amp;step=2'> Open offer </v:rect><![endif]-->"
+
+      assert_equal expected, email_compressor.compress(source)
+    end
+
+    def test_other_whitespace_passes_do_not_change_attribute_like_text_inside_urls
+      link = '<a href="https://example.com/?query=left > <right">Go</a>'
+      image = "<img src='https://example.com/preview?query=some wording = literal'>"
+      compressor = Compressor.new(:remove_intertag_spaces => true, :remove_quotes => true)
+
+      assert_equal link + image, compressor.compress(link + image)
+    end
+
+    def test_protocol_removal_still_applies_to_url_values_with_whitespace
+      source = "<a href='https://example.com/?size=wide\n&amp;key=one'>Open</a>"
+      expected = "<a href='//example.com/?size=wide\n&amp;key=one'>Open</a>"
+
+      assert_equal expected, Compressor.new(:remove_https_protocol => true).compress(source)
+    end
+
+    def test_literal_url_placeholder_is_not_restored_as_a_url
+      source = "<p>%%%~COMPRESS~URL~0~%%%</p><a href='example\npath'>Open</a>"
+
+      assert_equal source, Compressor.new.compress(source)
     end
 
     def test_adjacent_liquid_segments_keep_their_rendered_text_separators
