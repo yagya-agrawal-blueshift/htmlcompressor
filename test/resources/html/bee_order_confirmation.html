@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="{{ locale | default: 'en' }}" xmlns:v="urn:schemas-microsoft-com:vml">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Your order {{ order.number }}</title>
+  <style type="text/css">
+    .stack { display: table-cell; width: 50%; }
+    @media only screen and (max-width: 600px) {
+      .stack { display: block !important; width: 100% !important; }
+    }
+    @media (prefers-color-scheme: dark) {
+      .surface { background-color: #161616 !important; }
+    }
+  </style>
+</head>
+<body class="surface">
+  <span id="bsft-preheader" style="display: none !important; max-height: 0; max-width: 0;">Order {{ order.number }} is on its way.&nbsp;&#847;</span>
+  <!--[if mso]><table role="presentation" width="600" align="center"><tr><td><![endif]-->
+  <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+    <tr><td>
+      {% if order.ready %}
+        <h1>Thanks, {{ customer.first_name | escape }}!</h1>
+        <p>Your order {{ order.number }} is ready.</p>
+        <!--[if mso]><v:roundrect href="{{ order.tracking_url | escape }}" style="height:44px;width:200px" arcsize="10%"><center>Track your order</center></v:roundrect><![endif]-->
+        <!--[if !mso]><!-->
+          <a href="{{ order.tracking_url | escape }}?utm_source=email&amp;utm_medium=transactional" data-bsft-link-index="1">Track your order</a>
+          <!-- editor: style guidance lives in the <style> block -->
+          <style>.tracking-link { color: #1b1b1b; }</style>
+        <!--<![endif]-->
+      {% else %}
+        <p>We are preparing your order.</p>
+        <a href="{{ order.details_url | escape }}" data-bsft-link-index="2">Order details</a>
+      {% endif %}
+    </td></tr>
+  </table>
+  <!--[if mso]></td></tr></table><![endif]-->
+  <p><a href="{{ preferences_url | escape }}" data-bsft-link-index="3">Manage email preferences</a></p>
+  <!-- End -->
+</body>
+</html>

@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head><meta charset="utf-8"><title>Weekly picks</title></head>
+<body>
+  <span id="bsft-preheader" style="display:none">Your weekly picks&nbsp;&#847;</span>
+  {% assign heading = customer.first_name | default: 'friend' %}
+  <div role="main">
+    <p>أهلاً، {{ heading | escape }} 👋</p>
+    {% if products.size > 0 %}
+      <table role="presentation" width="100%"><tbody>
+        {% for product in products %}
+          <tr>
+            <td>
+              <img src="{{ product.image_url | escape }}" alt="{{ product.name | escape }}" width="120">
+              <a href="{{ product.url | escape }}?source=digest&amp;position={{ forloop.index }}" data-bsft-link-index="1">
+                {{ product.name | escape }}
+              </a>
+              {% if product.sale %}
+                <b>{{ product.sale_price | escape }}</b>&nbsp;<s>{{ product.price | escape }}</s>
+              {% else %}
+                <span>{{ product.price | escape }}</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody></table>
+    {% else %}
+      <p>We are still finding your picks.</p>
+    {% endif %}
+    <!-- editor: sample conditional opener <![if mso]> -->
+    <!--[if mso]><table role="presentation" width="540"><tr><td>Weekly picks</td></tr></table><![endif]-->
+    <p><a href="{{ preferences_url | escape }}" data-bsft-link-index="2">Preferences</a>
+      <a href="{{ unsubscribe_url | escape }}" data-bsft-link-index="3">Unsubscribe</a></p>
+  </div>
+</body>
+</html>

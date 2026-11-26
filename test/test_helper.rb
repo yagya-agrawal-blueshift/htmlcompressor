@@ -3,6 +3,13 @@ require 'htmlcompressor/compressor'
 
 module HtmlCompressor
 
+  module TestFixtures
+    EMAIL_PRESERVE_PATTERNS = [
+      /\s?\{%.*?%\}\s?/im, /\s?\{\{.*?\}\}\s?/im,
+      /<!--<!\[endif\]-->/im, /<!--\[if !mso\]><!-->/im, /<!-- End -->/im, /<!-->/im
+    ].freeze
+  end
+
   class TestCompressor < Minitest::Test
 
     private

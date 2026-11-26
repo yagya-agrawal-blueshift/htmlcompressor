@@ -47,6 +47,10 @@ options = {
 }
 ```
 
+With `remove_intertag_spaces` enabled, whitespace between recognized inline
+elements is retained so adjacent words do not run together. Stylesheets that
+match a configured preserve pattern are kept out of the CSS minifier.
+
 Htmlcompressor also ships a rack middleware that can be used with rails, sinatra or rack.
 
 **However keep in mind that compression is slow (especially when also compressing javascript or css) and can negatively impact the performance of your website. Take your measurements and adopt a different strategy if necessary**
@@ -163,6 +167,41 @@ options = {
 ## Statistics
 
 As of now the statistic framework hasn't been ported. Refer to original [htmlcompressor documentation](http://code.google.com/p/htmlcompressor/) for statistics on minified pages.
+
+## Compatibility tests
+
+Run the normal suite with `bundle exec rake test`. The property suite uses
+the existing Minitest dependency and is runnable on its own:
+
+```sh
+ruby -Ilib:test test/compressor_property_test.rb
+HTMLCOMPRESSOR_SEED=4975 HTMLCOMPRESSOR_CASES=1000 ruby -Ilib:test test/compressor_property_test.rb
+```
+
+The default seed is `5014`, with 240 inputs per property. Generated inputs
+combine supported email fragments. The tests check removal and retention of
+comments, exact output for protected fragments, reuse of a compressor, and
+repeat compression of stable inputs. On failure, the suite prints the seed,
+case number, and a smaller input obtained by removing unrelated fragments.
+Keep a named regression when a generated case identifies a new defect.
+
+The compatibility fixtures use this gem's options and expected output.
+They take behavioral cases from these upstream suites:
+
+| Reference | Cases adapted or checked |
+| --- | --- |
+| [Java HtmlCompressor](https://github.com/serg472/htmlcompressor/blob/master/src/test/java/com/googlecode/htmlcompressor/compressor/HtmlCompressorTest.java) and [upstream Ruby htmlcompressor](https://github.com/paolochiodi/htmlcompressor/blob/master/test/compressor_test.rb) | Preserve-pattern ordering, skip blocks, and CSS/JavaScript compressor calls |
+| [html-minifier-terser](https://github.com/terser/html-minifier-terser/blob/master/tests/minifier.spec.js) and [htmlnano](https://github.com/posthtml/htmlnano/blob/master/test/modules/removeComments.ts) | Revealed conditional comments, template fragments, inline separators, and comment-shaped literal text |
+| [Go minify](https://github.com/tdewolff/minify/blob/master/html/html_test.go) and [Rust minify-html](https://github.com/wilsonzlin/minify-html/blob/master/minify-html/src/tests/mod.rs) | Outlook-specific fragments, SSI, raw-text bodies, and opaque template syntax |
+| [Python htmlmin](https://github.com/mankyd/htmlmin/blob/master/htmlmin/tests/tests.py) and [PHP HtmlMin](https://github.com/voku/HtmlMin/blob/master/tests/HtmlMinTest.php) | Comment and whitespace options, Unicode spaces, JSON scripts, and protected content inside templates |
+| [.NET WebMarkupMin](https://github.com/Taritsyn/WebMarkupMin/tree/master/test/WebMarkupMin.Tests/Html/Common/Minification) | Comment delimiters inside CSS and JavaScript, CDATA, and alternating Outlook forms |
+
+The email fixtures cover transactional and recommendation messages with
+preheaders, responsive CSS, Outlook fallbacks, tracking URLs, Liquid, and
+right-to-left text. The comment regressions also cover quoted attribute
+values, comment delimiters next to character references, and preformatted
+content. If the source contains a literal internal placeholder, the
+compressor returns the source unchanged to prevent incorrect substitution.
 
 ## License
 

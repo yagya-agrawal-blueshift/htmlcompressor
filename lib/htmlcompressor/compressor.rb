@@ -38,7 +38,6 @@ module HtmlCompressor
     TEMP_SCRIPT_BLOCK = "%%%~COMPRESS~SCRIPT~{0,number,#}~%%%"
     TEMP_STYLE_BLOCK = "%%%~COMPRESS~STYLE~{0,number,#}~%%%"
     TEMP_EVENT_BLOCK = "%%%~COMPRESS~EVENT~{0,number,#}~%%%"
-    TEMP_COMMENT_BLOCK = "%%%~COMPRESS~COMMENT~{0,number,#}~%%%"
     TEMP_LINE_BREAK_BLOCK = "%%%~COMPRESS~LT~{0,number,#}~%%%"
     TEMP_SKIP_BLOCK = "%%%~COMPRESS~SKIP~{0,number,#}~%%%"
     TEMP_USER_BLOCK = "%%%~COMPRESS~USER{0,number,#}~{1,number,#}~%%%"
@@ -46,11 +45,44 @@ module HtmlCompressor
     # compiled regex patterns
     EMPTY_PATTERN = Regexp.new("\\s")
     SKIP_PATTERN = Regexp.new("<!--\\s*\\{\\{\\{\\s*-->(.*?)<!--\\s*\\}\\}\\}\\s*-->", Regexp::MULTILINE | Regexp::IGNORECASE)
-    COND_COMMENT_PATTERN = Regexp.new("(<!(?:--)?\\[[^\\]]+?\\]>)(.*?)(<!\\[[^\\]]+\\]-->)", Regexp::MULTILINE | Regexp::IGNORECASE)
+    OUTLOOK_COMMENT_OPENER = /<!--\[if\b[^\]]*\]>/i
+    OUTLOOK_REVEAL_MARKER = /[ \t\r\n\f]*<!--(?:>|[ \t\r\n\f]*-->)/
+    COND_COMMENT_END_PATTERN = /<!\[[^\]]+\]-->/im
+    COND_COMMENT_PATTERN = /(<!(?:--)?\[[^\]]+?\]>(?:#{OUTLOOK_REVEAL_MARKER})?)(.*?)(#{COND_COMMENT_END_PATTERN})/im
     COMMENT_PATTERN = Regexp.new("<!---->|<!--[^\\[].*?-->", Regexp::MULTILINE | Regexp::IGNORECASE)
-    COMMENT_CONDITIONAL_PATTERN = Regexp.new("<!--(?!\\[)(?:(?!-->).)*<!(?:--)?\\[if\\b(?:(?!-->).)*-->", Regexp::MULTILINE | Regexp::IGNORECASE)
-    COMMENT_BUILTIN_PATTERN = Regexp.new("<(?:pre|textarea|script|style)\\b|\\son[a-z]+\\s*=\\s*[\"']", Regexp::IGNORECASE)
-    INTERTAG_PATTERN_TAG_TAG = Regexp.new(">\\s+<", Regexp::MULTILINE | Regexp::IGNORECASE)
+    # This is a prefilter only. An apparent comment can start in a quoted
+    # attribute or raw-text body. Classify its boundaries before skipping it.
+    PRESERVATION_COMMENT_CANDIDATE = /<!--(?!\[|<!\[endif\b)(?:-?>|.*?(?:--!?>|\z))/im
+    HTML_TAG_TAIL = /(?:"[^"]*"|'[^']*'|[^"'<>])*>/
+    PRESERVATION_BOUNDARY_PATTERN = /
+      #{OUTLOOK_COMMENT_OPENER}(?:#{OUTLOOK_REVEAL_MARKER})?
+      | <!--(?:<!\[endif\]-->|-?>)
+      | <!--(?<comment>.*?)--!?>
+      | \{\{.*?\}\} | \{%.*?%\}
+      | <(?<raw>script|style|textarea|title|xmp|iframe|noembed|noframes|noscript)
+        (?=[\s\/>])#{HTML_TAG_TAIL}(?<raw_body>.*?)<\/\k<raw>\s*>
+      | <\/?[a-z][^\s\/<>"']*#{HTML_TAG_TAIL}
+    /imx
+    # Any conditional opener still present during comment removal can lack
+    # a matching endif. Its first HTML comment terminator still matters.
+    COMMENT_REMOVAL_BOUNDARY_PATTERN = Regexp.union(
+      /#{OUTLOOK_COMMENT_OPENER}(?:#{OUTLOOK_REVEAL_MARKER}|.*?(?:--!?>|\z))/m,
+      PRESERVATION_BOUNDARY_PATTERN
+    )
+    CONDITIONAL_HINT = /<!(?:--)?\[/
+    EVENT_HINT = /\son[a-z]+\s*=\s*["']/i
+    PRE_HINT = /<\/?pre/i
+    SCRIPT_HINT = /<script/i
+    STYLE_HINT = /<style/i
+    TEXTAREA_HINT = /<textarea/i
+    PRESERVATION_HINT = Regexp.union(CONDITIONAL_HINT, EVENT_HINT, PRE_HINT, SCRIPT_HINT, STYLE_HINT, TEXTAREA_HINT)
+    COMMENT_JOIN_BOUNDARY = /(?:&[A-Za-z0-9#]*|<)(?=<!--)/
+    INLINE_ELEMENTS = 'a|abbr|b|bdi|bdo|button|cite|code|data|del|dfn|em|i|img|input|ins|kbd|label|mark|meter|' \
+      'output|picture|q|ruby|s|samp|select|small|span|strong|sub|sup|time|u|var|wbr'
+    INTERTAG_PATTERN_TAG_TAG = /
+      (?<left><\/?(?:#{INLINE_ELEMENTS})(?=[\s\/>])#{HTML_TAG_TAIL}|>)
+      (?<space>\s+)(?=<(?:\/?(?<right>#{INLINE_ELEMENTS})(?=[\s\/>]))?)
+    /ix
     INTERTAG_PATTERN_TAG_CUSTOM = Regexp.new(">\\s+%%%~", Regexp::MULTILINE | Regexp::IGNORECASE)
     INTERTAG_PATTERN_CUSTOM_TAG = Regexp.new("~%%%\\s+<", Regexp::MULTILINE | Regexp::IGNORECASE)
     INTERTAG_PATTERN_CUSTOM_CUSTOM = Regexp.new("~%%%\\s+%%%~", Regexp::MULTILINE | Regexp::IGNORECASE)
@@ -58,7 +90,8 @@ module HtmlCompressor
     TAG_END_SPACE_PATTERN = Regexp.new("(<(?:[^>]+?))(?:\\s+?)(/?>)", Regexp::MULTILINE | Regexp::IGNORECASE)
     TAG_LAST_UNQUOTED_VALUE_PATTERN = Regexp.new("=\\s*[a-z0-9\\-_]+$", Regexp::IGNORECASE)
     TAG_QUOTE_PATTERN = Regexp.new("\\s*=\\s*([\"'])([a-z0-9\\-_]+?)\\1(/?)(?=[^<]*?>)", Regexp::IGNORECASE)
-    PRE_PATTERN = Regexp.new("(<pre[^>]*?>)(.*?)(</pre>)", Regexp::MULTILINE | Regexp::IGNORECASE)
+    PRE_END_PATTERN = /<\/pre>/i
+    PRE_PATTERN = /(<pre[^>]*?>)(.*?)(#{PRE_END_PATTERN})/im
     TA_PATTERN = Regexp.new("(<textarea[^>]*?>)(.*?)(</textarea>)", Regexp::MULTILINE | Regexp::IGNORECASE)
     SCRIPT_PATTERN = Regexp.new("(<script[^>]*?>)(.*?)(</script>)", Regexp::MULTILINE | Regexp::IGNORECASE)
     STYLE_PATTERN = Regexp.new("(<style[^>]*?>)(.*?)(</style>)", Regexp::MULTILINE | Regexp::IGNORECASE)
@@ -85,16 +118,7 @@ module HtmlCompressor
     SURROUNDING_SPACES_MAX_PATTERN = Regexp.new("\\s*(</?(?:" + BLOCK_TAGS_MAX.gsub(",", "|") + ")(?:>|[\\s/][^>]*>))\\s*", Regexp::MULTILINE | Regexp::IGNORECASE)
     SURROUNDING_SPACES_ALL_PATTERN = Regexp.new("\\s*(<[^>]+>)\\s*", Regexp::MULTILINE | Regexp::IGNORECASE)
 
-    # patterns for searching for temporary replacements
-    TEMP_COND_COMMENT_PATTERN = Regexp.new("%%%~COMPRESS~COND~(\\d+?)~%%%")
-    TEMP_PRE_PATTERN = Regexp.new("%%%~COMPRESS~PRE~(\\d+?)~%%%")
-    TEMP_TEXT_AREA_PATTERN = Regexp.new("%%%~COMPRESS~TEXTAREA~(\\d+?)~%%%")
-    TEMP_SCRIPT_PATTERN = Regexp.new("%%%~COMPRESS~SCRIPT~(\\d+?)~%%%")
-    TEMP_STYLE_PATTERN = Regexp.new("%%%~COMPRESS~STYLE~(\\d+?)~%%%")
-    TEMP_EVENT_PATTERN = Regexp.new("%%%~COMPRESS~EVENT~(\\d+?)~%%%")
-    TEMP_COMMENT_PATTERN = Regexp.new("%%%~COMPRESS~COMMENT~(\\d+?)~%%%")
-    TEMP_SKIP_PATTERN = Regexp.new("%%%~COMPRESS~SKIP~(\\d+?)~%%%")
-    TEMP_LINE_BREAK_PATTERN = Regexp.new("%%%~COMPRESS~LT~(\\d+?)~%%%")
+    TEMP_BLOCK_PATTERN = /%%%~COMPRESS~(COND|PRE|TEXTAREA|SCRIPT|STYLE|EVENT|LT|SKIP|USER\d+)~(\d+)~%%%/
 
     JAVASCRIPT_COMPRESSORS_OPTIONS = {
       :closure => { :compilation_level => 'ADVANCED_OPTIMIZATIONS' },
@@ -198,6 +222,8 @@ module HtmlCompressor
       if not @options[:enabled] or html.nil? or html.length == 0
         return html
       end
+      # A literal token could be mistaken for a saved block during restoration.
+      return html if TEMP_BLOCK_PATTERN.match?(html)
 
       # preserved block containers
       condCommentBlocks = []
@@ -227,6 +253,100 @@ module HtmlCompressor
 
     private
 
+    def preservation_candidates(html)
+      html.scan(PRESERVATION_COMMENT_CANDIDATE).select { |comment| PRESERVATION_HINT =~ comment }
+    end
+
+    def preserve_outside_comments(html, pattern, candidates, hint, closing_pattern = nil)
+      unless candidates.any? { |comment| hint =~ comment }
+        return html.gsub(pattern) { yield Regexp.last_match }
+      end
+
+      ranges = preservation_guard_ranges(html, hint)
+      return html.gsub(pattern) { yield Regexp.last_match } if ranges.empty?
+
+      result = html[0, 0]
+      consumed = 0
+      offset = 0
+      range_index = 0
+      while (match = pattern.match(html, offset))
+        start = match.begin(0)
+        range_index += 1 while ranges[range_index] && ranges[range_index].end <= start
+        range = ranges[range_index]
+        if range && range.cover?(start)
+          # Retry after the comment. The rejected match may already include
+          # the complete real block, so advancing to match.end loses it.
+          offset = range.end
+          next
+        end
+
+        block = match
+        finish = match.end(0)
+        if closing_pattern && range && range.begin <= match.begin(3)
+          closer = match_outside_ranges(html, closing_pattern, match.begin(3), ranges, range_index)
+          unless closer
+            offset = match.end(1)
+            next
+          end
+          if closer.begin(0) != match.begin(3)
+            finish = closer.end(0)
+            block = [html[start...finish], match[1], html[match.end(1)...closer.begin(0)], closer[0]]
+          end
+        end
+        result << html[consumed...start] << yield(block)
+        consumed = offset = finish
+      end
+      result << html[consumed..-1]
+    end
+
+    # Conditional and PRE bodies can contain ordinary HTML comments. Ignore
+    # closing markers in those comments as well as false openers.
+    def match_outside_ranges(html, pattern, offset, ranges, index)
+      while (match = pattern.match(html, offset))
+        start = match.begin(0)
+        index += 1 while ranges[index] && ranges[index].end <= start
+        range = ranges[index]
+        return match unless range && range.cover?(start)
+
+        offset = range.end
+      end
+      nil
+    end
+
+    def preservation_guard_ranges(html, hint)
+      ranges = []
+      html.to_enum(:scan, PRESERVATION_BOUNDARY_PATTERN).each do
+        token = Regexp.last_match
+        if token[:comment] && hint =~ token[:comment]
+          ranges << (token.begin(0)...token.end(0))
+        end
+        raw_body = token[:raw_body]
+        next unless raw_body && raw_body.include?('<!--')
+
+        # In raw text, comment-looking text cannot consume a close marker
+        # outside that element. These ranges are only for preservation.
+        base = token.begin(:raw_body)
+        raw_body.to_enum(:scan, /<!--.*?(?:--!?>|\z)/m).each do
+          literal = Regexp.last_match
+          if hint =~ literal[0]
+            ranges << ((base + literal.begin(0))...(base + literal.end(0)))
+          end
+        end
+      end
+      ranges
+    end
+
+    def compress_conditional_body(compressor, opening, body)
+      # A literal comment terminator inside an Outlook branch can expose the
+      # rest of the branch to normal HTML clients. Keep that boundary intact.
+      if opening.start_with?('<!--') && !opening.end_with?('-->') && (boundary = /--!?>/.match(body))
+        offset = boundary.end(0)
+        return body[0...offset] + compressor.compress(body[offset..-1])
+      end
+
+      compressor.compress(body)
+    end
+
     def preserve_blocks(html, preBlocks, taBlocks, scriptBlocks, styleBlocks, eventBlocks, condCommentBlocks, skipBlocks, lineBreakBlocks, userBlocks)
 
       # preserve <!-- {{{ ---><!-- }}} ---> skip blocks
@@ -242,65 +362,41 @@ module HtmlCompressor
         end
       end
 
+      candidates = preservation_candidates(html)
+
       # preserve conditional comments
       condCommentCompressor = self.clone
       index = -1
 
-      # A conditional opener written inside an ordinary comment must not be
-      # paired with a real conditional closer later in the document.
-      conditionalDocumentationBlocks = []
-      html = html.gsub(COMMENT_CONDITIONAL_PATTERN) do |match|
-        conditionalDocumentationBlocks << match
-        message_format(TEMP_COMMENT_BLOCK, conditionalDocumentationBlocks.size - 1)
-      end
-
-      html = html.gsub(COND_COMMENT_PATTERN) do
-        block_match = Regexp.last_match
-        if block_match[2].strip.length > 0
+      html = preserve_outside_comments(html, COND_COMMENT_PATTERN, candidates, CONDITIONAL_HINT, COND_COMMENT_END_PATTERN) do |match|
+        if match[2].strip.length > 0
           index += 1
-          condCommentBlocks << (block_match[1] + condCommentCompressor.compress(block_match[2]) + block_match[3])
+          compressed_body = compress_conditional_body(condCommentCompressor, match[1], match[2])
+          condCommentBlocks << (match[1] + compressed_body + match[3])
           message_format(TEMP_COND_COMMENT_BLOCK, index)
         else
           ''
-        end
-      end
-      unless conditionalDocumentationBlocks.empty?
-        html = restore_comment_blocks(html, conditionalDocumentationBlocks)
-      end
-
-      # Hide only comments containing markup recognized by the remaining
-      # built-in preservation passes. Other comments follow the original path.
-      commentBlocks = []
-      index = -1
-
-      html = html.gsub(COMMENT_PATTERN) do |match|
-        if match =~ COMMENT_BUILTIN_PATTERN
-          commentBlocks << match
-          index += 1
-          message_format(TEMP_COMMENT_BLOCK, index)
-        else
-          match
         end
       end
 
       # preserve inline events
       index = -1
 
-      html = html.gsub(EVENT_PATTERN1) do |match|
-        if $2.strip.length > 0
-          eventBlocks << $2
+      html = preserve_outside_comments(html, EVENT_PATTERN1, candidates, EVENT_HINT) do |match|
+        if match[2].strip.length > 0
+          eventBlocks << match[2]
           index += 1
-          $1 + message_format(TEMP_EVENT_BLOCK, index) + $3
+          match[1] + message_format(TEMP_EVENT_BLOCK, index) + match[3]
         else
           ''
         end
       end
 
-      html = html.gsub(EVENT_PATTERN2) do |match|
-        if $2.strip.length > 0
-          eventBlocks << $2
+      html = preserve_outside_comments(html, EVENT_PATTERN2, candidates, EVENT_HINT) do |match|
+        if match[2].strip.length > 0
+          eventBlocks << match[2]
           index += 1
-          $1 + message_format(TEMP_EVENT_BLOCK, index) + $3
+          match[1] + message_format(TEMP_EVENT_BLOCK, index) + match[3]
         else
           ''
         end
@@ -308,11 +404,11 @@ module HtmlCompressor
 
       # preserve PRE tags
       index = -1
-      html = html.gsub PRE_PATTERN do |match|
-        if $2.strip.length > 0
+      html = preserve_outside_comments(html, PRE_PATTERN, candidates, PRE_HINT, PRE_END_PATTERN) do |match|
+        if match[2].strip.length > 0
           index += 1
-          preBlocks << $2
-          $1 + message_format(TEMP_PRE_BLOCK, index) + $3
+          preBlocks << match[2]
+          match[1] + message_format(TEMP_PRE_BLOCK, index) + match[3]
         else
           ''
         end
@@ -321,17 +417,12 @@ module HtmlCompressor
       # preserve SCRIPT tags
       index = -1
 
-      html = html.gsub(SCRIPT_PATTERN) do |match|
-        group_1 = $1
-        group_2 = $2
-        group_3 = $3
+      html = preserve_outside_comments(html, SCRIPT_PATTERN, candidates, SCRIPT_HINT) do |match|
+        group_1, group_2, group_3 = match.captures
         # ignore empty scripts
         if group_2.strip.length > 0
           # check type
-          type = ""
-          if group_1 =~ TYPE_ATTR_PATTERN
-            type = $2.downcase
-          end
+          type = script_type(group_1)
 
           if type.length == 0 or type == 'text/javascript' or type == 'application/javascript'
             # javascript block, preserve and compress with js compressor
@@ -340,7 +431,7 @@ module HtmlCompressor
             group_1 + message_format(TEMP_SCRIPT_BLOCK, index) + group_3
           elsif @options[:js_template_types].include?(type)
             # jquery template, ignore so it gets compressed with the rest of html
-            match
+            match[0]
           else
             # some custom script, preserve it inside "skip blocks" so it won't be compressed with js compressor
             skipBlocks << group_2
@@ -349,47 +440,35 @@ module HtmlCompressor
           end
 
         else
-          match
+          match[0]
         end
       end
 
       # preserve STYLE tags
       index = -1
 
-      html = html.gsub(STYLE_PATTERN) do |match|
-        if $2.strip.length > 0
-          styleBlocks << $2
+      html = preserve_outside_comments(html, STYLE_PATTERN, candidates, STYLE_HINT) do |match|
+        if match[2].strip.length > 0
+          styleBlocks << match[2]
           index += 1
-          $1 + message_format(TEMP_STYLE_BLOCK, index) + $3
+          match[1] + message_format(TEMP_STYLE_BLOCK, index) + match[3]
         else
-          match
+          match[0]
         end
       end
 
       # preserve TEXTAREA tags
       index = -1
-      html = html.gsub(TA_PATTERN) do |match|
+      html = preserve_outside_comments(html, TA_PATTERN, candidates, TEXTAREA_HINT) do |match|
         index += 1
 
-        if $2.strip.length > 0
-          taBlocks << $2
+        if match[2].strip.length > 0
+          taBlocks << match[2]
         else
           taBlocks << ''
         end
 
-        $1 + message_format(TEMP_TEXT_AREA_BLOCK, index) + $3
-      end
-
-      # Restore comments before user-defined preservation patterns so their
-      # existing matching semantics remain unchanged. The normal HTML phase
-      # will still remove or retain these comments according to the option.
-      unless commentBlocks.empty?
-        html = restore_comment_blocks(html, commentBlocks)
-        [preBlocks, taBlocks, scriptBlocks, styleBlocks, eventBlocks, skipBlocks].each do |blocks|
-          blocks.map! do |block|
-            restore_comment_blocks(block, commentBlocks)
-          end
-        end
+        match[1] + message_format(TEMP_TEXT_AREA_BLOCK, index) + match[3]
       end
 
       # preserve user blocks
@@ -426,111 +505,29 @@ module HtmlCompressor
       html
     end
 
-    def restore_comment_blocks(source, commentBlocks)
-      source.gsub(TEMP_COMMENT_PATTERN) do
-        index = Regexp.last_match[1].to_i
-        commentBlocks.size > index ? commentBlocks[index] : ''
-      end
-    end
-
     def return_blocks(html, preBlocks, taBlocks, scriptBlocks, styleBlocks, eventBlocks, condCommentBlocks, skipBlocks, lineBreakBlocks, userBlocks)
+      blocks = {
+        'COND' => condCommentBlocks, 'PRE' => preBlocks, 'TEXTAREA' => taBlocks,
+        'SCRIPT' => scriptBlocks, 'STYLE' => styleBlocks, 'EVENT' => eventBlocks,
+        'LT' => lineBreakBlocks, 'SKIP' => skipBlocks
+      }
+      userBlocks.each_with_index { |group, index| blocks["USER#{index}"] = group }
 
-      # put skip blocks back
-      html = html.gsub(TEMP_SKIP_PATTERN) do |match|
-        i = $1.to_i
-        if skipBlocks.size > i
-          skipBlocks[i]
-        else
-          ''
+      # A preserved block can contain tokens from earlier passes. Resolve
+      # those tokens when the block is restored, regardless of its type.
+      restored = {}
+      restore = lambda do |match|
+        token = match[0]
+        restored.fetch(token) do
+          group = blocks[match[1]]
+          content = group ? group.fetch(match[2].to_i, '') : ''
+          # A custom minifier can emit token-shaped text. Guard against a
+          # reference back to a block already being restored.
+          restored[token] = token
+          restored[token] = content.gsub(TEMP_BLOCK_PATTERN) { restore.call(Regexp.last_match) }
         end
       end
-
-      # put line breaks back
-      if @options[:preserve_line_breaks]
-        html = html.gsub(TEMP_LINE_BREAK_PATTERN) do |match|
-          i = $1.to_i
-          if lineBreakBlocks.size > i
-            lineBreakBlocks[i]
-          else
-            ''
-          end
-        end
-      end
-
-      # put user blocks back
-      unless @options[:preserve_patterns].nil?
-        @options[:preserve_patterns].each_with_index do |preservePattern, p|
-          tempUserPattern = Regexp.new("%%%~COMPRESS~USER#{p}~(\\d+?)~%%%")
-          html = html.gsub(tempUserPattern).each do |match|
-            i = $1.to_i
-            if userBlocks.size > p and userBlocks[p].size > i
-              userBlocks[p][i]
-            else
-              ''
-            end
-          end
-        end
-      end
-
-      # put TEXTAREA blocks back
-      html = html.gsub(TEMP_TEXT_AREA_PATTERN) do |match|
-        i = $1.to_i
-        if taBlocks.size > i
-          taBlocks[i]
-        else
-          ''
-        end
-      end
-
-      # put STYLE blocks back
-      html = html.gsub(TEMP_STYLE_PATTERN) do |match|
-        i = $1.to_i
-        if styleBlocks.size > i
-          styleBlocks[i]
-        else
-          ''
-        end
-      end
-
-      # put SCRIPT blocks back
-      html = html.gsub(TEMP_SCRIPT_PATTERN) do |match|
-        i = $1.to_i
-        if scriptBlocks.size > i
-          scriptBlocks[i]
-        end
-      end
-
-      # put PRE blocks back
-      html = html.gsub TEMP_PRE_PATTERN do |match|
-        i = $1.to_i
-        if preBlocks.size > i
-          preBlocks[i] # quoteReplacement ?
-        else
-          ''
-        end
-      end
-
-      # put event blocks back
-      html = html.gsub(TEMP_EVENT_PATTERN) do |match|
-        i = $1.to_i
-        if eventBlocks.size > i
-          eventBlocks[i]
-        else
-          ''
-        end
-      end
-
-      # put conditional comments back
-      html = html.gsub(TEMP_COND_COMMENT_PATTERN) do |match|
-        i = $1.to_i
-        if condCommentBlocks.size > i
-          condCommentBlocks[i] # quoteReplacement ?
-        else
-          ''
-        end
-      end
-
-      html
+      html.gsub(TEMP_BLOCK_PATTERN) { restore.call(Regexp.last_match) }
     end
 
     def process_preserved_blocks(preBlocks, taBlocks, scriptBlocks, styleBlocks, eventBlocks, condCommentBlocks, skipBlocks, lineBreakBlocks, userBlocks)
@@ -602,6 +599,10 @@ module HtmlCompressor
     end
 
     def compress_css_styles(source)
+      # CSS minifiers can rewrite template expressions before they are rendered.
+      preserve_patterns = @options[:preserve_patterns]
+      return source if preserve_patterns && preserve_patterns.any? { |pattern| source[pattern] }
+
       # set default css compressor
       css_compressor = @options[:css_compressor]
 
@@ -618,6 +619,7 @@ module HtmlCompressor
       end
 
       # detect CDATA wrapper
+      original = source
       cdataWrapper = false
       if source =~ CDATA_PATTERN
         cdataWrapper = true
@@ -625,6 +627,11 @@ module HtmlCompressor
       end
 
       result = css_compressor.compress(source)
+      # YUI can return UTF-8 bytes tagged as US-ASCII or binary.
+      if !result.ascii_only? && [Encoding::US_ASCII, Encoding::BINARY].include?(result.encoding)
+        result = result.dup.force_encoding(source.encoding)
+      end
+      return original unless result.valid_encoding?
 
       if cdataWrapper
         result = "<![CDATA[" + result + "]]>"
@@ -689,13 +696,51 @@ module HtmlCompressor
     end
 
     def remove_comments(html)
+      return html unless @options[:remove_comments] && html.include?('<!--')
 
-      # remove comments
-      if @options[:remove_comments]
-        html = html.gsub(COMMENT_PATTERN, '')
+      # Match byte offsets so scanning the tags stays linear for UTF-8 copy.
+      source = html.b
+      last_comment = source.rindex('<!--')
+      # Removing some comments would join a character reference or a tag
+      # opener. Keeping those comments preserves the rendered text.
+      join_boundaries = {}
+      source.to_enum(:scan, COMMENT_JOIN_BOUNDARY).each do
+        join_boundaries[Regexp.last_match.end(0)] = true
       end
 
-      html
+      result = html.byteslice(0, 0)
+      consumed = 0
+      source.to_enum(:scan, COMMENT_REMOVAL_BOUNDARY_PATTERN).each do
+        token = Regexp.last_match
+        start = token.begin(0)
+        break if start > last_comment
+
+        if token[:comment] && removable_comment?(token[:comment]) && !join_boundaries[start]
+          result << html.byteslice(consumed...start)
+          consumed = token.end(0)
+        elsif token[:raw] && token[:raw].casecmp('script') == 0 && !@options[:js_template_types].empty?
+          body_start = token.begin(:raw_body)
+          body_end = token.end(:raw_body)
+          opening_tag = html.byteslice(start...body_start)
+          if @options[:js_template_types].include?(script_type(opening_tag))
+            result << html.byteslice(consumed...body_start) << remove_comments(html.byteslice(body_start...body_end))
+            consumed = body_end
+          end
+        end
+      end
+      result << html.byteslice(consumed..-1)
+    end
+
+    def removable_comment?(comment)
+      return false if comment.start_with?('[')
+
+      # A nested opener can make a trailing Outlook delimiter ambiguous.
+      !(comment.include?('<!--') && /<!\[endif\]\z/i =~ comment)
+    end
+
+    def script_type(opening_tag)
+      type = TYPE_ATTR_PATTERN.match(opening_tag)
+      type ? type[2].downcase : ''
     end
 
     def simple_doctype(html)
@@ -804,7 +849,11 @@ module HtmlCompressor
 
       # remove inter-tag spaces
       if @options[:remove_intertag_spaces]
-        html = html.gsub(INTERTAG_PATTERN_TAG_TAG, '><')
+        html = html.gsub(INTERTAG_PATTERN_TAG_TAG) do
+          match = Regexp.last_match
+          left = match[:left]
+          left != '>' && match[:right] ? left + match[:space] : left
+        end
         html = html.gsub(INTERTAG_PATTERN_TAG_CUSTOM, '>%%%~')
         html = html.gsub(INTERTAG_PATTERN_CUSTOM_TAG, '~%%%<')
         html = html.gsub(INTERTAG_PATTERN_CUSTOM_CUSTOM, '~%%%%%%~')
