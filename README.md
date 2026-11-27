@@ -203,6 +203,44 @@ values, comment delimiters next to character references, and preformatted
 content. If the source contains a literal internal placeholder, the
 compressor returns the source unchanged to prevent incorrect substitution.
 
+### Semantic email tests
+
+Byte expectations cannot show whether a mail client still sees the same
+email. These suites compare what a client sees instead, using
+`Nokogiri::HTML5` (the WHATWG parsing algorithm Gmail, Apple Mail, and
+browsers follow) and Liquid 4 rendering in the default lax mode used by BSFT
+sends. Both are development dependencies. The oracle lives in
+`test/support/email_semantics.rb` and compares links, images, non-empty
+stylesheets, the Outlook conditional sequence, Liquid tokens, `alt` and
+`title` text, element counts, and the visible word sequence. Inline
+boundaries do not separate words, so a removed separator shows up as fused
+words.
+
+- `test/compressor_semantic_property_test.rb` generates emails from markup
+  shapes seen while replaying 16,669 stored templates from three accounts.
+  Every case runs with BSFT's exact options. It asserts that clients see the
+  same email, the Liquid-rendered email matches for each branch context,
+  valid Liquid stays valid, and recompression changes nothing visible. Use
+  `HTMLCOMPRESSOR_SEED` and `HTMLCOMPRESSOR_SEMANTIC_CASES` (default 120).
+  Failures shrink to the fewest shapes that still fail.
+- `test/compressor_corpus_shapes_test.rb` holds named regressions for those
+  shapes. Examples: Liquid in CSS (`{` followed by `{%`, comparison
+  operators, decimal filter arguments), a closed comment that keeps a
+  stylesheet visible, editor comments inside Outlook branches, block markup
+  nested in links, Liquid-built `href` branches, and whitespace around
+  Outlook blocks between inline elements.
+- `test/compressor_known_gaps_test.rb` records current output for cosmetic
+  gaps shared with the original fork pin: `=` and `>` inside quoted
+  attribute values, raw `>` text before an inline element, a body `<style>`
+  between inline links, Liquid inside ordinary HTML comments, an unquoted URL
+  before `/>`, and an Outlook closer written inside an ordinary comment. When
+  a fix changes one of them, update the expectation and this list.
+
+Whitespace next to an Outlook conditional block keeps one space when the
+other side is an inline element or another conditional block. The block is
+invisible to HTML5 clients, so that whitespace separates the visible words
+around it. It is still removed next to block-level elements.
+
 ## License
 
 Licensed under the Apache License, Version 2.0 (the "License");

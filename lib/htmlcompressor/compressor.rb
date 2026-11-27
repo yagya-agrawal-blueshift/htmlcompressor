@@ -88,9 +88,20 @@ module HtmlCompressor
       (?<left><\/?(?:#{INLINE_ELEMENTS})(?=[\s\/>])#{HTML_TAG_TAIL}|>)
       (?<space>\s+)(?=<(?:\/?(?<right>#{INLINE_ELEMENTS})(?=[\s\/>]))?)
     /ix
-    INTERTAG_PATTERN_TAG_CUSTOM = Regexp.new(">\\s+%%%~", Regexp::MULTILINE | Regexp::IGNORECASE)
-    INTERTAG_PATTERN_CUSTOM_TAG = Regexp.new("~%%%\\s+<", Regexp::MULTILINE | Regexp::IGNORECASE)
-    INTERTAG_PATTERN_CUSTOM_CUSTOM = Regexp.new("~%%%\\s+%%%~", Regexp::MULTILINE | Regexp::IGNORECASE)
+    # Outlook conditional blocks are invisible in HTML5 clients, so whitespace
+    # between one and an inline element still separates the words around it.
+    # Other preserved blocks keep the original tag-adjacent minification.
+    INTERTAG_PATTERN_TAG_CUSTOM = /
+      (?<left><\/?(?:#{INLINE_ELEMENTS})(?=[\s\/>])#{HTML_TAG_TAIL}|>)\s+(?=%%%~COMPRESS~(?<kind>[A-Z]+))
+    /ix
+    INTERTAG_PATTERN_CUSTOM_TAG = /
+      (?<block>%%%~COMPRESS~(?<kind>[A-Z]+)\d*~\d+~%%%)\s+(?=<(?<right>\/?(?:#{INLINE_ELEMENTS})(?=[\s\/>]))?)
+    /ix
+    # Between two blocks, keep one space if either is a conditional: the
+    # visible content on each side may be inline.
+    INTERTAG_PATTERN_CUSTOM_CUSTOM = /
+      (?<block>%%%~COMPRESS~(?<left>[A-Z]+)\d*~\d+~%%%)\s+(?=%%%~COMPRESS~(?<right>[A-Z]+))
+    /x
     MULTISPACE_PATTERN = Regexp.new("\\s+", Regexp::MULTILINE | Regexp::IGNORECASE)
     QUOTED_URL_WHITESPACE_CANDIDATE = /\b(?:href|src)\s*=\s*(?:"[^"]*\s|'[^']*\s)/i
     HTML_START_TAG = /\A<[a-z][^\s\/<>"']*#{HTML_TAG_TAIL}/i
@@ -901,9 +912,18 @@ module HtmlCompressor
           left = match[:left]
           left != '>' && match[:right] ? left + match[:space] : left
         end
-        html = html.gsub(INTERTAG_PATTERN_TAG_CUSTOM, '>%%%~')
-        html = html.gsub(INTERTAG_PATTERN_CUSTOM_TAG, '~%%%<')
-        html = html.gsub(INTERTAG_PATTERN_CUSTOM_CUSTOM, '~%%%%%%~')
+        html = html.gsub(INTERTAG_PATTERN_TAG_CUSTOM) do
+          match = Regexp.last_match
+          match[:kind] == 'COND' && match[:left] != '>' ? match[:left] + ' ' : match[:left]
+        end
+        html = html.gsub(INTERTAG_PATTERN_CUSTOM_TAG) do
+          match = Regexp.last_match
+          match[:kind] == 'COND' && match[:right] ? match[:block] + ' ' : match[:block]
+        end
+        html = html.gsub(INTERTAG_PATTERN_CUSTOM_CUSTOM) do
+          match = Regexp.last_match
+          [match[:left], match[:right]].include?('COND') ? match[:block] + ' ' : match[:block]
+        end
       end
 
       html
